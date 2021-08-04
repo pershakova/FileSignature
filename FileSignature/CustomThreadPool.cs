@@ -7,8 +7,8 @@ namespace FileSignature
 {
     internal class CustomThreadPool<T> : IDisposable
     {
-        private readonly BlockingCollection<T> queue = new BlockingCollection<T>();
-        private readonly List<Thread> taskList;
+        private readonly BlockingCollection<T> queue;
+        private readonly List<Thread> threadList;
       
         private readonly int maxWorkers;
         private bool wasShutDown;
@@ -18,7 +18,8 @@ namespace FileSignature
         public CustomThreadPool(int maxWorkers)
         {
             this.maxWorkers = maxWorkers;
-            taskList = new List<Thread>();
+            threadList = new List<Thread>();
+            queue = new BlockingCollection<T>();
         }
         public void Enqueue(T value)
         {
@@ -35,7 +36,7 @@ namespace FileSignature
         {
             for (int i = 0; i < maxWorkers; i++)
             {
-                taskList.Add(new Thread(() =>
+                threadList.Add(new Thread(() =>
                 {
                     while (waitingUnits > 0 || !queue.IsAddingCompleted)
                     {
@@ -47,9 +48,9 @@ namespace FileSignature
                 ));
             }
 
-            foreach (var task in taskList)
+            foreach (var thread in threadList)
             {
-                task.Start();
+                thread.Start();
             }
         }
 
@@ -61,9 +62,9 @@ namespace FileSignature
         private void Shutdown()
         {
             wasShutDown = true;
-            foreach (var task in taskList)
+            foreach (var thread in threadList)
             {
-                task.Join();
+                thread.Join();
             }
         }
 
