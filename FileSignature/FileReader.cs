@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.MemoryMappedFiles;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -19,6 +21,7 @@ namespace FileSignature
         private MemoryMappedFile _mmf;
 
         private readonly object lockObject = new();
+        private ConcurrentQueue<int> _limitQueue;
 
         internal FileReader(string filePath, int chunk)
         {
@@ -26,34 +29,44 @@ namespace FileSignature
             _chunk = chunk;
             _fileSize = new FileInfo(filePath).Length;
             _chunkAmount = _fileSize / chunk;
-            _threadLimit = 16; //?
+            _threadLimit = 8; //?
+         
         }
 
         public void Process()
         {
             var listThread = new List<Thread>();
-          
+            _limitQueue = new ConcurrentQueue<int>();
+
             try
             {
                 _sha256Hash = SHA256.Create();
                 _mmf = MemoryMappedFile.CreateFromFile(_filePath, FileMode.Open);
 
-                var customThreadPool = new CustomThreadPool<int>(_threadLimit);
+                int i = 0;
 
-                customThreadPool.StartWorkers(value =>
+                while (i <= _chunkAmount)
                 {
-                    Work(value);
-                });
+                    if (_limitQueue.Count < _threadLimit)
+                    {
+                        i++;
 
-           
-                for (int z = 0; z <= _chunkAmount; z++)
-                {
-                    customThreadPool.Enqueue(z);
+                        _limitQueue.Enqueue(i);
+
+                        var t = new Thread(Work);
+
+                        listThread.Add(t);
+
+                        t.Start(i);
+                    }
                 }
 
-                customThreadPool.CompleteAdding();
+                var collection = listThread.Where(x => x.IsAlive == true);
 
-                customThreadPool.Await();               
+                foreach (var s in collection)
+                {
+                    s.Join();
+                }
             }
             catch
             {
@@ -83,6 +96,8 @@ namespace FileSignature
                     Console.WriteLine($"{i} - {hash}");
                 }                                        
             }
+
+            _limitQueue.TryDequeue(out int _);
         }
 
         private string GetHash(HashAlgorithm hashAlgorithm, byte[] input)
